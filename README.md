@@ -2,8 +2,6 @@
 
 A Thread Safe fast way to find proxies. Find 2000-5000 working http,socks4,socks5 proxies in one scan.
 
-![379e86d10c8e05e9d21a20647d37c70ea0d5e976c72a44a2a5506c88d31e5cf3](https://user-images.githubusercontent.com/65712074/195901928-721235f2-163e-4266-ae4e-d7c76b2626d2.png)
-
 # Config
   ```json
    {
@@ -34,20 +32,6 @@ A Thread Safe fast way to find proxies. Find 2000-5000 working http,socks4,socks
 -url https://api.com/proxies - Loads the proxies from an api and checks it.
   ```
 
-
-# Features
-  * Scan entire world for http,socks4 and socks5 proxies.
-  * Inbuilt file + (from url) proxy scanner
-  * Display ISP, Country
-  
-# Example Run
-  * Be Sure to use an Hosting that allows Portscan just like https://pfcloud.io
-  > zmap -p 8080 | ./ZmapProxyScanner -p 8080
-
-# Build
-  > Requires go v1.19+
-  ```shell
-  git clone https://github.com/Yariya/Zmap-ProxyScanner.git
-  cd Zmap-ProxyScanner
-  go build
-  ```
+```
+masscan -p80,8000,3128,8081,8089,8585,9080,1080,7001,7890 --rate=10000 0.0.0.0/0  --exclude 255.255.255.255 | masscan-ProxyScanner
+```

@@ -12,8 +12,18 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"regexp"
 	"strings"
 )
+
+func takeIpAndPort(s string) string {
+	re := regexp.MustCompile(`Discovered open port (\d+)/tcp on (\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})`)
+	match := re.FindStringSubmatch(s)
+	if len(match) == 3 {
+		return match[2] + ":" + match[2]
+	}
+	return ""
+}
 
 func Scanner() {
 	if *fetch != "" {
@@ -47,8 +57,17 @@ func Scanner() {
 		fmt.Printf("Detected ZMAP Mode.\n")
 		scanner := bufio.NewScanner(os.Stdin)
 		for scanner.Scan() {
-			ip := scanner.Text()
-			queueChan <- ip
+
+			// 这里读取出ip和端口， 再，组合成一个字符串，输入到 queueChan
+			// "Discovered open port 8585/tcp on 77.134.77.194"
+			str := takeIpAndPort(scanner.Text())
+
+			if str != "" {
+				queueChan <- str
+			}
+
+			// ip := scanner.Text()
+			// queueChan <- ip
 		}
 	}
 }

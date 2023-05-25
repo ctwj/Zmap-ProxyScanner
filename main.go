@@ -16,6 +16,7 @@ import (
 	"time"
 )
 
+// 参数 p ，不要了， 从扫描结果数据中获取
 var port = flag.Int("p", 80, "proxy port")
 var output = flag.String("o", "output.txt", "output file")
 var configFile = flag.String("cfg", "config.json", "configuration file")

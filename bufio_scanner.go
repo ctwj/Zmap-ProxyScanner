@@ -20,7 +20,7 @@ func takeIpAndPort(s string) string {
 	re := regexp.MustCompile(`Discovered open port (\d+)/tcp on (\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})`)
 	match := re.FindStringSubmatch(s)
 	if len(match) == 3 {
-		return match[2] + ":" + match[2]
+		return match[2] + ":" + match[1]
 	}
 	return ""
 }

@@ -34,9 +34,12 @@ A Thread Safe fast way to find proxies. Find 2000-5000 working http,socks4,socks
 
 ```
 # 通过 masscan
-masscan -p80,8000,3128,8081,8089,8585,9080,1080,7001,7890 --rate=15000 0.0.0.0/0  --exclude 255.255.255.255 > a.txt
-cat a.txt | awk '{print $6":"$4}' | awk -F/ '{print $1}' > b.txt
-cat b.txt | ZmapProxyScanner -o proxies.txt
+
+
+~/Program/go/Zmap-ProxyScanner masscan ⚡
+$ sudo ~/safe/masscan/bin/masscan -p8000,3128,8081,8089,8585,9080,1080,7001,7890 --rate=15000 0.0.0.0/0  --exclude 255.255.255.255 | ./ZmapProxyScanner -o proxies.txt
+
+
 
 # 通过文件
 ZmapProxyScanner -o proxies.txt

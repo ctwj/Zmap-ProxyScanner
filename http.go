@@ -72,6 +72,39 @@ func (p *Proxy) checkFail() {
 }
 
 // 检测所有类型的代理
+// func (p *Proxy) CheckAllProxyType(proxy string) {
+// 	// 先检测 socks5 类型的代理
+// 	ip, port, err := p.prevCheckProxy(proxy)
+// 	if err != nil {
+// 		log.Println(err)
+// 		return
+// 	}
+
+// 	// 检测 socks5 类型的代理
+// 	success, _ := p.performCheck(ip, port, "socks5")
+// 	if success {
+// 		p.checkSuccess(ip, port, "socks5")
+// 		return
+// 	}
+
+// 	// 检测 https 类型的代理
+// 	success, _ = p.performCheck(ip, port, "https")
+// 	if success {
+// 		p.checkSuccess(ip, port, "https")
+// 		return
+// 	}
+
+// 	// 检测 http 类型的代理
+// 	success, _ = p.performCheck(ip, port, "http")
+// 	if success {
+// 		p.checkSuccess(ip, port, "http")
+// 		return
+// 	}
+
+// 	p.checkFail()
+// }
+
+// 检测所有类型的代理
 func (p *Proxy) CheckAllProxyType(proxy string) {
 	// 先检测 socks5 类型的代理
 	ip, port, err := p.prevCheckProxy(proxy)
@@ -80,27 +113,56 @@ func (p *Proxy) CheckAllProxyType(proxy string) {
 		return
 	}
 
-	// 检测 socks5 类型的代理
-	success, _ := p.performCheck(ip, port, "socks5")
-	if success {
-		p.checkSuccess(ip, port, "socks5")
-		return
-	}
-	// 检测 https 类型的代理
-	success, _ = p.performCheck(ip, port, "https")
-	if success {
-		p.checkSuccess(ip, port, "https")
-		return
+	// 创建通道用于接收检测结果
+	resultCh := make(chan ProxyCheckResult)
+
+	// 使用sync.WaitGroup等待所有检测方法完成
+	var wg sync.WaitGroup
+	wg.Add(3)
+
+	// 异步执行代理检测方法
+	go p.performCheckAsync(ip, port, "socks5", resultCh, &wg)
+	go p.performCheckAsync(ip, port, "https", resultCh, &wg)
+	go p.performCheckAsync(ip, port, "http", resultCh, &wg)
+
+	// 等待所有检测方法完成
+	go func() {
+		wg.Wait()
+		close(resultCh)
+	}()
+
+	// 处理检测结果
+	var successfulCheck ProxyCheckResult
+	for res := range resultCh {
+		if res.Success {
+			successfulCheck = res
+			break
+		}
 	}
 
-	// 检测 http 类型的代理
-	success, _ = p.performCheck(ip, port, "http")
-	if success {
-		p.checkSuccess(ip, port, "http")
-		return
+	if successfulCheck.Success {
+		p.checkSuccess(ip, port, successfulCheck.ProxyType)
+	} else {
+		p.checkFail()
 	}
+}
 
-	p.checkFail()
+// 代理检测结果结构体
+type ProxyCheckResult struct {
+	Success   bool
+	ProxyType string
+}
+
+// 异步执行代理检测
+func (p *Proxy) performCheckAsync(ip string, port int, proxyType string, resultCh chan<- ProxyCheckResult, wg *sync.WaitGroup) {
+	defer wg.Done()
+
+	success, _ := p.performCheck(ip, port, proxyType)
+	result := ProxyCheckResult{
+		Success:   success,
+		ProxyType: proxyType,
+	}
+	resultCh <- result
 }
 
 // 检测代理前 预处理操作

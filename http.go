@@ -5,8 +5,9 @@
 package main
 
 import (
+	"crypto/tls"
+	"errors"
 	"fmt"
-	"h12.io/socks"
 	"log"
 	"net"
 	"net/http"
@@ -16,6 +17,8 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"h12.io/socks"
 )
 
 type Proxy struct {
@@ -45,15 +48,7 @@ func (p *Proxy) WorkerThread() {
 		for atomic.LoadInt64(&p.openHttpThreads) < int64(config.HttpThreads) {
 			p.mu.Lock()
 			for proxy, _ := range p.ips {
-				if strings.ToLower(config.ProxyType) == "http" {
-					go p.CheckProxyHTTP(proxy)
-				} else if strings.ToLower(config.ProxyType) == "socks4" {
-					go p.CheckProxySocks4(proxy)
-				} else if strings.ToLower(config.ProxyType) == "socks5" {
-					go p.CheckProxySocks5(proxy)
-				} else {
-					log.Fatalln("invalid ProxyType")
-				}
+				go p.CheckAllProxyType(proxy)
 				delete(p.ips, proxy)
 				break
 			}
@@ -64,186 +59,173 @@ func (p *Proxy) WorkerThread() {
 	}
 }
 
-func (p *Proxy) CheckProxyHTTP(proxy string) {
-	atomic.AddInt64(&p.openHttpThreads, 1)
-	defer func() {
-		atomic.AddInt64(&p.openHttpThreads, -1)
-		atomic.AddUint64(&checked, 1)
-	}()
-
-	var err error
-	var proxyPort = *port
-	s := strings.Split(proxy, ":")
-	if len(s) > 1 {
-		proxyPort, err = strconv.Atoi(strings.TrimSpace(s[1]))
-		if err != nil {
-			log.Println(err)
-			return
-		}
+func (p *Proxy) checkSuccess(ip string, port int, proxyType string) {
+	if config.PrintIps.Enabled {
+		go PrintProxy(ip, port)
 	}
+	atomic.AddUint64(&success, 1)
+	exporter.Add(fmt.Sprintf("%s:%d,%s", ip, port, proxyType))
+}
 
-	if len(s) > 1 {
-		var err error
-		proxyPort, err = strconv.Atoi(s[1])
-		if err != nil {
-			log.Println(err)
-			return
-		}
-	}
-	proxyUrl, err := url.Parse(fmt.Sprintf("http://%s:%d", s[0], proxyPort))
+func (p *Proxy) checkFail() {
+	atomic.AddUint64(&proxyErr, 1)
+}
+
+// 检测所有类型的代理
+func (p *Proxy) CheckAllProxyType(proxy string) {
+	// 先检测 socks5 类型的代理
+	ip, port, err := p.prevCheckProxy(proxy)
 	if err != nil {
 		log.Println(err)
 		return
 	}
 
-	tr := &http.Transport{
-		Proxy: http.ProxyURL(proxyUrl),
-		DialContext: (&net.Dialer{
-			Timeout:   time.Second * time.Duration(config.Timeout.HttpTimeout),
-			KeepAlive: time.Second,
-			DualStack: true,
-		}).DialContext,
-	}
-
-	client := http.Client{
-		Timeout:   time.Second * time.Duration(config.Timeout.HttpTimeout),
-		Transport: tr,
-	}
-
-	req, err := http.NewRequest("GET", config.CheckSite, nil)
-	if err != nil {
-		log.Fatalln(err)
-	}
-	req.Header.Add("User-Agent", config.Headers.UserAgent)
-	req.Header.Add("accept", config.Headers.Accept)
-
-	res, err := client.Do(req)
-	if err != nil {
-		atomic.AddUint64(&proxyErr, 1)
-		if strings.Contains(err.Error(), "timeout") {
-			atomic.AddUint64(&timeoutErr, 1)
-			return
-		}
+	// 检测 socks5 类型的代理
+	success, _ := p.performCheck(ip, port, "socks5")
+	if success {
+		p.checkSuccess(ip, port, "socks5")
 		return
 	}
-	res.Body.Close()
-	if res.StatusCode != 200 {
-		atomic.AddUint64(&statusCodeErr, 1)
-	} else {
-		if config.PrintIps.Enabled {
-			go PrintProxy(s[0], proxyPort)
-		}
-		atomic.AddUint64(&success, 1)
-		exporter.Add(fmt.Sprintf("%s:%d", s[0], proxyPort))
+	// 检测 https 类型的代理
+	success, _ = p.performCheck(ip, port, "https")
+	if success {
+		p.checkSuccess(ip, port, "https")
+		return
 	}
+
+	// 检测 http 类型的代理
+	success, _ = p.performCheck(ip, port, "http")
+	if success {
+		p.checkSuccess(ip, port, "http")
+		return
+	}
+
+	p.checkFail()
 }
 
-func (p *Proxy) CheckProxySocks4(proxy string) {
+// 检测代理前 预处理操作
+func (p *Proxy) prevCheckProxy(proxy string) (string, int, error) {
 	atomic.AddInt64(&p.openHttpThreads, 1)
 	defer func() {
 		atomic.AddInt64(&p.openHttpThreads, -1)
 		atomic.AddUint64(&checked, 1)
 	}()
 
-	var err error
-	var proxyPort = *port
 	s := strings.Split(proxy, ":")
-	if len(s) > 1 {
-		proxyPort, err = strconv.Atoi(strings.TrimSpace(s[1]))
-		if err != nil {
-			log.Println(err)
-			return
-		}
+	if len(s) < 2 {
+		return "", 0, errors.New("invalid proxy format")
 	}
 
-	tr := &http.Transport{
-		Dial: socks.Dial(fmt.Sprintf("socks4://%s:%d?timeout=%ds", s[0], proxyPort, config.Timeout.Socks4Timeout)),
-	}
-
-	client := http.Client{
-		Timeout:   time.Second * time.Duration(config.Timeout.HttpTimeout),
-		Transport: tr,
-	}
-
-	req, err := http.NewRequest("GET", config.CheckSite, nil)
+	ip := strings.TrimSpace(s[0])
+	port, err := strconv.Atoi(strings.TrimSpace(s[1]))
 	if err != nil {
-		log.Fatalln(err)
+		return "", 0, err
 	}
-	req.Header.Add("User-Agent", config.Headers.UserAgent)
-	req.Header.Add("accept", config.Headers.Accept)
 
-	res, err := client.Do(req)
-	if err != nil {
-		atomic.AddUint64(&proxyErr, 1)
-		if strings.Contains(err.Error(), "timeout") {
-			atomic.AddUint64(&timeoutErr, 1)
-			return
-		}
-		return
-	}
-	res.Body.Close()
-	if res.StatusCode != 200 {
-		atomic.AddUint64(&statusCodeErr, 1)
-	} else {
-		if config.PrintIps.Enabled {
-			go PrintProxy(s[0], proxyPort)
-		}
-		atomic.AddUint64(&success, 1)
-		exporter.Add(fmt.Sprintf("%s:%d", s[0], proxyPort))
-	}
+	return ip, port, nil
 }
 
-func (p *Proxy) CheckProxySocks5(proxy string) {
-	atomic.AddInt64(&p.openHttpThreads, 1)
-	defer func() {
-		atomic.AddInt64(&p.openHttpThreads, -1)
-		atomic.AddUint64(&checked, 1)
-	}()
+// 执行代理检测函数，参数为检测类型，ip 和端口
+func (p *Proxy) performCheck(ip string, port int, proxyType string) (bool, bool) {
+	var tr *http.Transport
 
-	var err error
-	var proxyPort = *port
-	s := strings.Split(proxy, ":")
-	if len(s) > 1 {
-		proxyPort, err = strconv.Atoi(strings.TrimSpace(s[1]))
+	switch proxyType {
+	case "http":
+		// 解析 HTTP 代理地址
+		proxyUrl, err := url.Parse(fmt.Sprintf("http://%s:%d", ip, port))
 		if err != nil {
 			log.Println(err)
-			return
+			return false, false
 		}
+
+		// 配置 HTTP Transport
+		tr = &http.Transport{
+			Proxy: http.ProxyURL(proxyUrl),
+			DialContext: (&net.Dialer{
+				Timeout:   time.Second * time.Duration(config.Timeout.HttpTimeout),
+				KeepAlive: time.Second,
+				DualStack: true,
+			}).DialContext,
+		}
+		break
+
+	case "https":
+		// 解析 HTTPS 代理地址
+		proxyUrl, err := url.Parse(fmt.Sprintf("https://%s:%d", ip, port))
+		if err != nil {
+			log.Println(err)
+			return false, false
+		}
+
+		// 配置 HTTPS Transport
+		tr = &http.Transport{
+			Proxy: http.ProxyURL(proxyUrl),
+			DialContext: (&net.Dialer{
+				Timeout:   time.Second * time.Duration(config.Timeout.HttpTimeout),
+				KeepAlive: time.Second,
+				DualStack: true,
+			}).DialContext,
+			TLSClientConfig: &tls.Config{
+				InsecureSkipVerify: true, // 跳过证书验证
+			},
+		}
+		break
+
+	case "socks4":
+		// 配置 SOCKS4 Transport
+		tr = &http.Transport{
+			Dial: socks.Dial(fmt.Sprintf("socks4://%s:%d?timeout=%ds", ip, port, config.Timeout.Socks4Timeout)),
+		}
+		break
+
+	case "socks5":
+		// 配置 SOCKS5 Transport
+		tr = &http.Transport{
+			Dial: socks.Dial(fmt.Sprintf("socks5://%s:%d?timeout=%ds", ip, port, config.Timeout.Socks5Timeout)),
+		}
+		break
+
+	default:
+		// 不支持的代理类型
+		return false, false
 	}
 
-	tr := &http.Transport{
-		Dial: socks.Dial(fmt.Sprintf("socks5://%s:%d?timeout=%ds", s[0], proxyPort, config.Timeout.Socks4Timeout)),
-	}
-
+	// 创建 HTTP 客户端
 	client := http.Client{
 		Timeout:   time.Second * time.Duration(config.Timeout.HttpTimeout),
 		Transport: tr,
 	}
 
+	// 创建 HTTP 请求
 	req, err := http.NewRequest("GET", config.CheckSite, nil)
 	if err != nil {
-		log.Fatalln(err)
+		log.Println(err)
+		return false, false
 	}
 	req.Header.Add("User-Agent", config.Headers.UserAgent)
 	req.Header.Add("accept", config.Headers.Accept)
 
+	// 发送请求并获取响应
 	res, err := client.Do(req)
 	if err != nil {
-		atomic.AddUint64(&proxyErr, 1)
 		if strings.Contains(err.Error(), "timeout") {
-			atomic.AddUint64(&timeoutErr, 1)
-			return
+			// 连接超时错误
+			return false, true
 		}
-		return
+		// 其他错误
+		return false, false
 	}
-	res.Body.Close()
+	defer res.Body.Close()
+
 	if res.StatusCode != 200 {
-		atomic.AddUint64(&statusCodeErr, 1)
+		// 响应状态码非 200，检测失败
+		return false, false
 	} else {
 		if config.PrintIps.Enabled {
-			go PrintProxy(s[0], proxyPort)
+			// 打印代理地址
+			go PrintProxy(ip, port)
 		}
-		atomic.AddUint64(&success, 1)
-		exporter.Add(fmt.Sprintf("%s:%d", s[0], proxyPort))
+		// 检测成功
+		return true, false
 	}
 }

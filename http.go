@@ -104,6 +104,23 @@ func (p *Proxy) checkFail() {
 // 	p.checkFail()
 // }
 
+// 根据端口，获取检测类型
+func (p *Proxy) getCheckTypeByPort(port int) []string {
+	defaultCheckTypes := []string{"socks5", "https", "http"}
+	portCheckTypes := map[int][]string{
+		80:   {"http"},
+		8443: {"https", "http"},
+		1080: {"socks5"},
+	}
+
+	checkTypes := portCheckTypes[port]
+	if len(checkTypes) == 0 {
+		checkTypes = defaultCheckTypes
+	}
+
+	return checkTypes
+}
+
 // 检测所有类型的代理
 func (p *Proxy) CheckAllProxyType(proxy string) {
 	// 先检测 socks5 类型的代理
@@ -118,12 +135,16 @@ func (p *Proxy) CheckAllProxyType(proxy string) {
 
 	// 使用sync.WaitGroup等待所有检测方法完成
 	var wg sync.WaitGroup
-	wg.Add(3)
 
 	// 异步执行代理检测方法
-	go p.performCheckAsync(ip, port, "socks5", resultCh, &wg)
-	go p.performCheckAsync(ip, port, "https", resultCh, &wg)
-	go p.performCheckAsync(ip, port, "http", resultCh, &wg)
+	checkTypes := p.getCheckTypeByPort(port)
+	wg.Add(len(checkTypes))
+	for _, checkType := range checkTypes {
+		go p.performCheckAsync(ip, port, checkType, resultCh, &wg)
+	}
+	// go p.performCheckAsync(ip, port, "socks5", resultCh, &wg)
+	// go p.performCheckAsync(ip, port, "https", resultCh, &wg)
+	// go p.performCheckAsync(ip, port, "http", resultCh, &wg)
 
 	// 等待所有检测方法完成
 	go func() {

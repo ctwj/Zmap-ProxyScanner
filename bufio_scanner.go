@@ -54,7 +54,7 @@ func Scanner() {
 			queueChan <- line
 		}
 	} else {
-		fmt.Printf("Detected ZMAP Mode.\n")
+		fmt.Printf("Detected masscan Mode.\n")
 		scanner := bufio.NewScanner(os.Stdin)
 		for scanner.Scan() {
 
@@ -65,9 +65,6 @@ func Scanner() {
 			if str != "" {
 				queueChan <- str
 			}
-
-			// ip := scanner.Text()
-			// queueChan <- ip
 		}
 	}
 }

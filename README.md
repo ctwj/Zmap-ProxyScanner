@@ -1,4 +1,4 @@
-# Zmap-ProxyScanner
+# proxyScan
 
 A Thread Safe fast way to find proxies. Find 2000-5000 working http,socks4,socks5 proxies in one scan.
 
@@ -26,7 +26,6 @@ A Thread Safe fast way to find proxies. Find 2000-5000 working http,socks4,socks
   ```
 ## Flag Args
   ```shell
--p <port> - Port you want to scan.
 -o <proxies.txt> - Writes proxy hits to file.
 -input <proxies.txt> - Loads the proxy list and checks it.
 -url https://api.com/proxies - Loads the proxies from an api and checks it.
@@ -36,11 +35,6 @@ A Thread Safe fast way to find proxies. Find 2000-5000 working http,socks4,socks
 # 通过 masscan
 
 
-~/Program/go/Zmap-ProxyScanner masscan ⚡
-$ sudo ~/safe/masscan/bin/masscan -p8000,3128,8081,8089,8585,9080,1080,7001,7890 --rate=15000 0.0.0.0/0  --exclude 255.255.255.255 | ./ZmapProxyScanner -o proxies.txt
+$ masscan -p3128,8443,8080,1080,8089,8585,9080,1080,7001,7890 --rate=15000 0.0.0.0/0  --exclude 255.255.255.255 | ./proxyScan -o proxies.txt
 
-
-
-# 通过文件
-ZmapProxyScanner -o proxies.txt
 ```
